@@ -1,0 +1,81 @@
+---
+title: "State Population Map"
+author: "Navin Sharma"
+date: "2023-06-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r cache=TRUE}
+library(raster)
+library(leaflet)
+library(geodata)
+library(stringr)
+
+# Get USA polygon data
+#USA <- getData("GADM", country = "usa", level = 2)
+USA <- geodata::gadm(country="usa",level=1,path=tempdir())
+
+usa_pop_url <- "https://www2.census.gov/programs-surveys/popest/datasets/2020-2021/counties/asrh/cc-est2021-all.csv"
+dataset <- read.csv(usa_pop_url)
+
+statePops <- dataset %>% 
+  dplyr::filter(YEAR==3) %>%
+  dplyr::filter(AGEGRP!=0) %>%
+  dplyr::select(STNAME,TOT_POP) %>% 
+  dplyr::group_by(STNAME) %>% 
+  dplyr::summarize(TOT_POP=sum(TOT_POP))
+
+# Merge census and GADM data
+merged_data <- merge(USA, statePops, by.x = "NAME_1", by.y = "STNAME")
+
+# Create a color palette
+#bin <- c(quantile(merged_data$TOT_POP, probs = seq(0, 0.9, by = .1)),Inf)
+bin <- c(0,1000000,2500000,5000000,10000000,15000000,20000000,30000000,Inf)
+#mypal <- colorNumeric(palette = "mako", domain = merged_data$TOT_POP, na.color = "grey")
+#mypal <- colorBin("mako", domain = merged_data$TOT_POP, bins = bin)
+mypal <- colorBin("YlOrRd", domain = merged_data$TOT_POP, bins = bin)
+
+#cast back as a sf
+USA <- sf::st_as_sf(USA)
+
+# Create labels for the map when mouseover
+labels <- sprintf(
+  "<strong>%s</strong><br/>Population: %d",
+  merged_data$NAME_1, merged_data$TOT_POP
+) %>% lapply(htmltools::HTML)
+```
+
+```{r}
+# Create Leaflet map
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = USA,
+              weight=1,
+              color="gray",
+              fillColor = mypal(merged_data$TOT_POP),
+              fillOpacity = 0.8,
+              highlightOptions = highlightOptions(
+                color = "gray",
+                weight = 3, 
+                bringToFront = TRUE),
+              label = labels,
+              labelOptions = labelOptions(
+                    style = list("font-weight" = "normal", padding = "3px 8px"),
+                    textsize = "15px",
+                    direction = "auto")) %>%
+  addLegend(pal = mypal, 
+            values = merged_data$TOT_POP, 
+            opacity = 0.7, 
+            title = "State Population",
+            position = "bottomright") %>%
+  fitBounds(lng1 = -125, 
+          lat1 = 24, 
+          lng2 = -67, 
+          lat2 = 50)
+```
+
+
